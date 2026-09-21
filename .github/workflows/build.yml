@@ -10,6 +10,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # اللوجو متخزن كنص base64 عشان يتحفظ في الريبو زي أي ملف كود،
+      # وهنا بنرجّعه صورة PNG قبل البناء - بيتحط كأيقونة التطبيق وكلوجو
+      # فوق شاشة استقبال الملفات المشاركة من واتساب
+      - name: Restore Barq icon
+        run: |
+          mkdir -p app/src/main/res/mipmap-xxxhdpi
+          base64 -d app/icon/barq_icon_b64.txt > app/src/main/res/mipmap-xxxhdpi/barq_logo.png
+          cp app/src/main/res/mipmap-xxxhdpi/barq_logo.png app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+          cp app/src/main/res/mipmap-xxxhdpi/barq_logo.png app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png
+          ls -l app/src/main/res/mipmap-xxxhdpi/
+
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
