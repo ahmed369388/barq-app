@@ -7,9 +7,20 @@ import android.content.SharedPreferences;
 public class Prefs {
     private static final String FILE = "barq_prefs";
     private static final String KEY_URL = "server_url";
+    private static final String KEY_DARK = "dark_mode";
 
     private static SharedPreferences sp(Context c) {
         return c.getSharedPreferences(FILE, Context.MODE_PRIVATE);
+    }
+
+    /** الوضع الليلي/النهاري بتاع البرنامج نفسه - الصفحة بتبلّغنا بيه أول ما تفتح أو يتغيّر،
+     *  عشان شاشة "الملف ده يتحط فين؟" (شاشة أندرويد أصلية) تتلون بنفس وضع البرنامج */
+    public static boolean isDarkMode(Context c) {
+        return sp(c).getBoolean(KEY_DARK, false);
+    }
+
+    public static void setDarkMode(Context c, boolean dark) {
+        sp(c).edit().putBoolean(KEY_DARK, dark).apply();
     }
 
     public static String getUrl(Context c) {
