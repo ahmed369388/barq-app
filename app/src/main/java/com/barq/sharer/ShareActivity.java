@@ -1,15 +1,18 @@
 package com.barq.sharer;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
+import android.text.InputType;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -34,6 +37,7 @@ public class ShareActivity extends Activity {
     private final List<Uploader.Item> items = new ArrayList<>();
     private TextView status;
     private final List<Button> destButtons = new ArrayList<>();
+    private int totalAdded = 0;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -94,20 +98,95 @@ public class ShareActivity extends Activity {
 
     private void send(final String dest) {
         if (items.isEmpty()) return;
+        totalAdded = 0;
         setButtonsEnabled(false);
         status.setText("جاري الرفع...");
+        uploadItems(dest, items);
+    }
+
+    /**
+     * بيرفع مجموعة ملفات، ولو السيرفر رد إن أي ملف منها محتاج كلمة سر (ملف إكسل محمي)
+     * بيفتح نافذة يطلب فيها كلمة السر بدل ما يرفض الملف على طول - عشان أي حد يستخدم
+     * البرنامج يقدر يشارك ملف محمي بكلمة سر من واتساب من غير ما يتوه.
+     */
+    private void uploadItems(final String dest, final List<Uploader.Item> toSend) {
         new Thread(() -> {
-            final Uploader.Result r = Uploader.upload(ShareActivity.this, dest, items);
+            final Uploader.Result r = Uploader.upload(ShareActivity.this, dest, toSend);
             runOnUiThread(() -> {
-                status.setText(r.message);
-                if (r.ok) {
-                    Toast.makeText(ShareActivity.this, r.message, Toast.LENGTH_SHORT).show();
+                totalAdded += extractAddedCount(r);
+                if (!r.needPassword.isEmpty()) {
+                    askPasswordAndRetry(dest, toSend, r.needPassword);
+                    return;
+                }
+                String finalMsg = totalAdded > 0
+                        ? "تم رفع " + totalAdded + " ملف بنجاح"
+                        : r.message;
+                status.setText(finalMsg);
+                if (totalAdded > 0) {
+                    Toast.makeText(ShareActivity.this, finalMsg, Toast.LENGTH_SHORT).show();
                     status.postDelayed(this::finish, 900);
                 } else {
                     setButtonsEnabled(true);
                 }
             });
         }).start();
+    }
+
+    /** بيلاقط عدد الملفات اللي اتضافت فعلًا من رسالة النتيجة (لو موجود رقم فيها) */
+    private int extractAddedCount(Uploader.Result r) {
+        if (!r.ok) return 0;
+        try {
+            String digits = r.message.replaceAll("[^0-9]", "");
+            return digits.isEmpty() ? 1 : Integer.parseInt(digits);
+        } catch (Exception e) {
+            return 1;
+        }
+    }
+
+    /** بيفتح نافذة كلمة سر لأول ملف من قايمة "محتاج كلمة سر"، وبعد ما المستخدم يكتبها بيعيد رفع نفس الملف بس */
+    private void askPasswordAndRetry(final String dest, final List<Uploader.Item> allSent, final List<String> needPwNames) {
+        final String targetName = needPwNames.get(0);
+        Uploader.Item target = null;
+        for (Uploader.Item it : allSent) {
+            if (it.name.equals(targetName)) { target = it; break; }
+        }
+        if (target == null) {
+            status.setText("تعذر تحديد الملف المحتاج كلمة سر");
+            setButtonsEnabled(true);
+            return;
+        }
+        final Uploader.Item fTarget = target;
+
+        final EditText input = new EditText(this);
+        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        input.setHint("كلمة السر");
+
+        final boolean isRetry = fTarget.password != null && !fTarget.password.isEmpty();
+        new AlertDialog.Builder(this)
+                .setTitle("الملف \"" + targetName + "\" محمي بكلمة سر")
+                .setMessage(isRetry ? "كلمة السر غلط - جرّب تاني" : "اكتب كلمة سر الملف عشان نقدر نرفعه")
+                .setView(input)
+                .setCancelable(false)
+                .setPositiveButton("تم", (d, w) -> {
+                    fTarget.password = input.getText().toString();
+                    List<Uploader.Item> retryOnly = new ArrayList<>();
+                    retryOnly.add(fTarget);
+                    status.setText("جاري الرفع...");
+                    uploadItems(dest, retryOnly);
+                })
+                .setNegativeButton("تجاهل الملف ده", (d, w) -> {
+                    List<String> remaining = new ArrayList<>(needPwNames);
+                    remaining.remove(0);
+                    if (remaining.isEmpty()) {
+                        String finalMsg = totalAdded > 0 ? "تم رفع " + totalAdded + " ملف بنجاح" : "اتلغى";
+                        status.setText(finalMsg);
+                        if (totalAdded > 0) status.postDelayed(this::finish, 900);
+                        else setButtonsEnabled(true);
+                    } else {
+                        askPasswordAndRetry(dest, allSent, remaining);
+                    }
+                })
+                .show();
     }
 
     private void setButtonsEnabled(boolean on) {
