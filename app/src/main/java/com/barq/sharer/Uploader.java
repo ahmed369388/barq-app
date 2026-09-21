@@ -26,6 +26,8 @@ public class Uploader {
     public static class Item {
         public final String name;
         public final byte[] bytes;
+        /** كلمة سر الملف لو محمي - بتتحط بعد ما المستخدم يكتبها في نافذة كلمة السر */
+        public String password = "";
         Item(String name, byte[] bytes) { this.name = name; this.bytes = bytes; }
     }
 
@@ -33,7 +35,14 @@ public class Uploader {
     public static class Result {
         public final boolean ok;
         public final String message;
-        Result(boolean ok, String message) { this.ok = ok; this.message = message; }
+        /** أسماء الملفات اللي محتاجة كلمة سر (أو كلمة السر اللي اتبعتت غلط) */
+        public final List<String> needPassword;
+        Result(boolean ok, String message) { this(ok, message, new ArrayList<>()); }
+        Result(boolean ok, String message, List<String> needPassword) {
+            this.ok = ok;
+            this.message = message;
+            this.needPassword = needPassword;
+        }
     }
 
     /** بيطلع اسم الملف الحقيقي من الـ Uri اللي التطبيق المشارِك بعته */
@@ -97,6 +106,7 @@ public class Uploader {
                 JSONObject o = new JSONObject();
                 o.put("filename", it.name);
                 o.put("content", Base64.encodeToString(it.bytes, Base64.NO_WRAP));
+                o.put("password", it.password == null ? "" : it.password);
                 arr.put(o);
             }
             JSONObject body = new JSONObject();
@@ -138,6 +148,14 @@ public class Uploader {
 
             try {
                 JSONObject res = new JSONObject(text);
+                List<String> needPw = new ArrayList<>();
+                JSONArray npArr = res.optJSONArray("need_password");
+                if (npArr != null) {
+                    for (int i = 0; i < npArr.length(); i++) needPw.add(npArr.optString(i));
+                }
+                if (!needPw.isEmpty()) {
+                    return new Result(false, "الملف محتاج كلمة سر", needPw);
+                }
                 if (res.optBoolean("ok", false)) {
                     int added = res.optInt("added", items.size());
                     return new Result(true, "تم رفع " + added + " ملف بنجاح");
