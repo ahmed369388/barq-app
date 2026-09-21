@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
 import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
@@ -13,6 +14,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -42,6 +44,12 @@ public class ShareActivity extends Activity {
     private static final int[] GRAD_REF = { Color.parseColor("#F3E1A0"), Color.parseColor("#D4AF37"), Color.parseColor("#B8942C") };
     private static final int[] GRAD_CHECK = { Color.parseColor("#40916C"), Color.parseColor("#2D6A4F"), Color.parseColor("#1B4332") };
     private static final int[] GRAD_MAIN = { Color.parseColor("#7DD3FC"), Color.parseColor("#2563EB"), Color.parseColor("#0C3B82") };
+
+    // ألوان نافذة كلمة السر - زيتوني متدرج (بطلب المستخدم)
+    private static final int[] GRAD_OLIVE_BG = { Color.parseColor("#3E4A2A"), Color.parseColor("#2B331C"), Color.parseColor("#1A2012") };
+    private static final int[] GRAD_OLIVE_BTN = { Color.parseColor("#8FA857"), Color.parseColor("#6B7F3C"), Color.parseColor("#4B5A29") };
+    private static final int OLIVE_LINE = Color.parseColor("#6B7F3C");
+    private static final int OLIVE_TEXT_SOFT = Color.parseColor("#D7E0C4");
 
     private boolean darkMode = false;
 
@@ -168,38 +176,160 @@ public class ShareActivity extends Activity {
         }
         final Uploader.Item fTarget = target;
 
+        final boolean isRetry = fTarget.password != null && !fTarget.password.isEmpty();
+        showPasswordDialog(targetName, isRetry, new PasswordCallback() {
+            @Override
+            public void onEntered(String password) {
+                fTarget.password = password;
+                List<Uploader.Item> retryOnly = new ArrayList<>();
+                retryOnly.add(fTarget);
+                status.setText("جاري الرفع...");
+                uploadItems(dest, retryOnly);
+            }
+
+            @Override
+            public void onSkipped() {
+                List<String> remaining = new ArrayList<>(needPwNames);
+                remaining.remove(0);
+                if (remaining.isEmpty()) {
+                    String finalMsg = totalAdded > 0 ? "تم رفع " + totalAdded + " ملف بنجاح" : "اتلغى";
+                    status.setText(finalMsg);
+                    if (totalAdded > 0) status.postDelayed(ShareActivity.this::finish, 900);
+                    else setButtonsEnabled(true);
+                } else {
+                    askPasswordAndRetry(dest, allSent, remaining);
+                }
+            }
+        });
+    }
+
+    private interface PasswordCallback {
+        void onEntered(String password);
+        void onSkipped();
+    }
+
+    /**
+     * نافذة كلمة السر بشكل احترافي مصمم بالكامل (مش نافذة النظام العادية): خلفية زيتونية
+     * متدرجة، حواف دايرية، وأزرار متدرجة - بطلب المستخدم.
+     */
+    private void showPasswordDialog(String fileName, boolean isRetry, final PasswordCallback cb) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(22), dp(22), dp(22), dp(18));
+        GradientDrawable boxBg = new GradientDrawable(
+                GradientDrawable.Orientation.TL_BR, GRAD_OLIVE_BG);
+        boxBg.setCornerRadius(dp(20));
+        boxBg.setStroke(dp(1), OLIVE_LINE);
+        box.setBackground(boxBg);
+
+        TextView lock = new TextView(this);
+        lock.setText("🔒");
+        lock.setTextSize(TypedValue.COMPLEX_UNIT_SP, 26);
+        lock.setGravity(Gravity.CENTER);
+        box.addView(lock);
+
+        TextView title = new TextView(this);
+        title.setText("الملف محمي بكلمة سر");
+        title.setTextColor(Color.WHITE);
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+        title.setGravity(Gravity.CENTER);
+        title.setPadding(0, dp(6), 0, dp(4));
+        box.addView(title);
+
+        TextView nameView = new TextView(this);
+        nameView.setText(fileName);
+        nameView.setTextColor(OLIVE_TEXT_SOFT);
+        nameView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        nameView.setGravity(Gravity.CENTER);
+        nameView.setMaxLines(2);
+        nameView.setPadding(0, 0, 0, dp(10));
+        box.addView(nameView);
+
+        TextView msg = new TextView(this);
+        msg.setText(isRetry ? "كلمة السر غلط - جرّب تاني" : "اكتب كلمة سر الملف عشان نقدر نرفعه");
+        msg.setTextColor(isRetry ? Color.parseColor("#FFB4A2") : OLIVE_TEXT_SOFT);
+        msg.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f);
+        msg.setGravity(Gravity.CENTER);
+        msg.setPadding(0, 0, 0, dp(12));
+        box.addView(msg);
+
         final EditText input = new EditText(this);
         input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         input.setHint("كلمة السر");
+        input.setHintTextColor(Color.parseColor("#9AA88A"));
+        input.setTextColor(Color.WHITE);
+        input.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        input.setGravity(Gravity.CENTER);
+        input.setPadding(dp(14), dp(12), dp(14), dp(12));
+        GradientDrawable inputBg = new GradientDrawable();
+        inputBg.setColor(Color.parseColor("#1E2617"));
+        inputBg.setCornerRadius(dp(12));
+        inputBg.setStroke(dp(1), OLIVE_LINE);
+        input.setBackground(inputBg);
+        LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        ilp.bottomMargin = dp(16);
+        box.addView(input, ilp);
 
-        final boolean isRetry = fTarget.password != null && !fTarget.password.isEmpty();
-        // نافذة كلمة السر بتتبع نفس وضع البرنامج (ليلي/نهاري) زي باقي الشاشة
-        new AlertDialog.Builder(this, darkMode
-                ? AlertDialog.THEME_DEVICE_DEFAULT_DARK : AlertDialog.THEME_DEVICE_DEFAULT_LIGHT)
-                .setTitle("الملف \"" + targetName + "\" محمي بكلمة سر")
-                .setMessage(isRetry ? "كلمة السر غلط - جرّب تاني" : "اكتب كلمة سر الملف عشان نقدر نرفعه")
-                .setView(input)
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+
+        Button ok = new Button(this);
+        ok.setText("تم");
+        ok.setTextColor(Color.WHITE);
+        ok.setAllCaps(false);
+        ok.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        GradientDrawable okBg = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, GRAD_OLIVE_BTN);
+        okBg.setCornerRadius(dp(12));
+        ok.setBackground(okBg);
+        LinearLayout.LayoutParams okLp = new LinearLayout.LayoutParams(0, dp(48), 1.3f);
+        okLp.leftMargin = dp(5);
+        ok.setLayoutParams(okLp);
+
+        Button skip = new Button(this);
+        skip.setText("تجاهل");
+        skip.setTextColor(OLIVE_TEXT_SOFT);
+        skip.setAllCaps(false);
+        skip.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        GradientDrawable skipBg = new GradientDrawable();
+        skipBg.setColor(Color.parseColor("#00000000"));
+        skipBg.setCornerRadius(dp(12));
+        skipBg.setStroke(dp(1), OLIVE_LINE);
+        skip.setBackground(skipBg);
+        LinearLayout.LayoutParams skipLp = new LinearLayout.LayoutParams(0, dp(48), 1f);
+        skipLp.rightMargin = dp(5);
+        skip.setLayoutParams(skipLp);
+
+        row.addView(ok);
+        row.addView(skip);
+        box.addView(row);
+
+        // إطار خارجي شفاف عشان النافذة تبان طايرة وسط الشاشة بمسافات من الجناب
+        LinearLayout wrapper = new LinearLayout(this);
+        wrapper.setPadding(dp(12), dp(6), dp(12), dp(6));
+        wrapper.addView(box, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        final AlertDialog dialog = new AlertDialog.Builder(this)
+                .setView(wrapper)
                 .setCancelable(false)
-                .setPositiveButton("تم", (d, w) -> {
-                    fTarget.password = input.getText().toString();
-                    List<Uploader.Item> retryOnly = new ArrayList<>();
-                    retryOnly.add(fTarget);
-                    status.setText("جاري الرفع...");
-                    uploadItems(dest, retryOnly);
-                })
-                .setNegativeButton("تجاهل الملف ده", (d, w) -> {
-                    List<String> remaining = new ArrayList<>(needPwNames);
-                    remaining.remove(0);
-                    if (remaining.isEmpty()) {
-                        String finalMsg = totalAdded > 0 ? "تم رفع " + totalAdded + " ملف بنجاح" : "اتلغى";
-                        status.setText(finalMsg);
-                        if (totalAdded > 0) status.postDelayed(this::finish, 900);
-                        else setButtonsEnabled(true);
-                    } else {
-                        askPasswordAndRetry(dest, allSent, remaining);
-                    }
-                })
-                .show();
+                .create();
+        if (dialog.getWindow() != null) {
+            // بنشيل خلفية النافذة البيضا بتاعة النظام عشان تصميمنا الزيتوني يبان لوحده
+            dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        }
+
+        ok.setOnClickListener(v -> {
+            String pw = input.getText().toString();
+            dialog.dismiss();
+            cb.onEntered(pw);
+        });
+        skip.setOnClickListener(v -> {
+            dialog.dismiss();
+            cb.onSkipped();
+        });
+
+        dialog.show();
     }
 
     private void setButtonsEnabled(boolean on) {
@@ -242,8 +372,19 @@ public class ShareActivity extends Activity {
         }
         card.setBackground(bg);
 
+        // لوجو برق فوق الشاشة
+        ImageView logo = new ImageView(this);
+        try {
+            logo.setImageResource(R.mipmap.barq_logo);
+        } catch (Exception ignored) { }
+        LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(dp(72), dp(72));
+        logoLp.gravity = Gravity.CENTER_HORIZONTAL;
+        logoLp.bottomMargin = dp(10);
+        logo.setLayoutParams(logoLp);
+        card.addView(logo);
+
         TextView title = new TextView(this);
-        title.setText("⚡ الملف ده يتحط فين؟");
+        title.setText("الملف ده يتحط فين؟");
         title.setTextColor(textColor);
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17);
         title.setGravity(Gravity.CENTER);
@@ -293,4 +434,4 @@ public class ShareActivity extends Activity {
         b.setAlpha(0.45f);
         return b;
     }
-    }
+                        }
