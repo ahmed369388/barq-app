@@ -10,6 +10,7 @@ import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
 import android.text.InputType;
+import android.util.Base64;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
@@ -26,6 +27,11 @@ import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
+
+import androidx.core.content.FileProvider;
+
+import java.io.File;
+import java.io.FileOutputStream;
 
 /** الشاشة الرئيسية: بتعرض البرنامج نفسه جوه التطبيق */
 public class MainActivity extends Activity {
@@ -76,6 +82,11 @@ public class MainActivity extends Activity {
         // جسر جافا-سكريبت عشان نقدر نلصق من حافظة الهاتف - الـWebView العادي مش بيدي
         // إذن وصول للحافظة عن طريق navigator.clipboard خالص، فلازم جسر ناتيف زي ده
         web.addJavascriptInterface(new ClipboardBridge(), "AndroidClipboard");
+
+        // جسر عشان زرار "مشاركة" (صورة نتائج الفرز) يفتح شاشة مشاركة أندرويد الحقيقية
+        // (زي مشاركة صورة من المعرض) بدل ما يحفظ الصورة في التنزيلات بس - ده اللي بيخلي
+        // اختيار واتساب من شاشة المشاركة يوديك لواتساب فعلًا مع الصورة مرفقة جاهزة
+        web.addJavascriptInterface(new ShareBridge(), "AndroidShare");
 
         root.addView(web, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
@@ -176,6 +187,39 @@ public class MainActivity extends Activity {
             } catch (Exception e) {
                 return "";
             }
+        }
+    }
+
+    /**
+     * جسر بيدي صفحة الويب القدرة تفتح شاشة "مشاركة" أندرويد الحقيقية (زي مشاركة صورة من
+     * المعرض بالظبط) - عشان تقدر تختار واتساب من القايمة ويوصله الملف جاهز مرفق على طول،
+     * بدل ما البرنامج يضطر يحفظ الملف في مجلد التنزيلات ويسيب المستخدم يرفقه بنفسه يدوي.
+     */
+    private class ShareBridge {
+        @JavascriptInterface
+        public void shareFile(final String base64Data, final String filename, final String mime) {
+            runOnUiThread(() -> {
+                try {
+                    byte[] bytes = Base64.decode(base64Data, Base64.DEFAULT);
+                    File dir = new File(getCacheDir(), "shared");
+                    dir.mkdirs();
+                    // بنشيل أي ملفات قديمة في المجلد ده عشان مايتراكمش
+                    File[] old = dir.listFiles();
+                    if (old != null) for (File f : old) f.delete();
+                    File file = new File(dir, filename);
+                    try (FileOutputStream fos = new FileOutputStream(file)) {
+                        fos.write(bytes);
+                    }
+                    Uri uri = FileProvider.getUriForFile(MainActivity.this, getPackageName() + ".fileprovider", file);
+                    Intent share = new Intent(Intent.ACTION_SEND);
+                    share.setType(mime == null || mime.isEmpty() ? "application/octet-stream" : mime);
+                    share.putExtra(Intent.EXTRA_STREAM, uri);
+                    share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    startActivity(Intent.createChooser(share, "مشاركة"));
+                } catch (Exception e) {
+                    Toast.makeText(MainActivity.this, "تعذرت المشاركة: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                }
+            });
         }
     }
 }
