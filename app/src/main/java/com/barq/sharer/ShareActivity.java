@@ -30,9 +30,20 @@ import java.util.List;
  */
 public class ShareActivity extends Activity {
 
-    private static final int NAVY = Color.parseColor("#0b1e3d");
-    private static final int CARD = Color.parseColor("#122a52");
-    private static final int GOLD = Color.parseColor("#c9a35a");
+    // ألوان الشاشة بتتحدد حسب وضع البرنامج نفسه (ليلي/نهاري) اللي الصفحة بتحفظه في Prefs
+    private static final int NAVY_DARK = Color.parseColor("#0b1e3d");   // خلفية الوضع الليلي
+    private static final int CARD_DARK = Color.parseColor("#122a52");
+    private static final int BG_LIGHT = Color.parseColor("#F4F7FB");    // خلفية الوضع النهاري
+    private static final int CARD_LIGHT = Color.parseColor("#FFFFFF");
+    private static final int TEXT_LIGHT = Color.parseColor("#0b1e3d");
+
+    // تدرجات أزرار الاختيارات - نفس ألوان صفحة الفرز بالظبط:
+    // ملف إحالة = ذهبي، ملف تشيك = أخضر، ملف تسجيل = أزرق (لون ملف الداتا)
+    private static final int[] GRAD_REF = { Color.parseColor("#F3E1A0"), Color.parseColor("#D4AF37"), Color.parseColor("#B8942C") };
+    private static final int[] GRAD_CHECK = { Color.parseColor("#40916C"), Color.parseColor("#2D6A4F"), Color.parseColor("#1B4332") };
+    private static final int[] GRAD_MAIN = { Color.parseColor("#7DD3FC"), Color.parseColor("#2563EB"), Color.parseColor("#0C3B82") };
+
+    private boolean darkMode = false;
 
     private final List<Uploader.Item> items = new ArrayList<>();
     private TextView status;
@@ -162,7 +173,9 @@ public class ShareActivity extends Activity {
         input.setHint("كلمة السر");
 
         final boolean isRetry = fTarget.password != null && !fTarget.password.isEmpty();
-        new AlertDialog.Builder(this)
+        // نافذة كلمة السر بتتبع نفس وضع البرنامج (ليلي/نهاري) زي باقي الشاشة
+        new AlertDialog.Builder(this, darkMode
+                ? AlertDialog.THEME_DEVICE_DEFAULT_DARK : AlertDialog.THEME_DEVICE_DEFAULT_LIGHT)
                 .setTitle("الملف \"" + targetName + "\" محمي بكلمة سر")
                 .setMessage(isRetry ? "كلمة السر غلط - جرّب تاني" : "اكتب كلمة سر الملف عشان نقدر نرفعه")
                 .setView(input)
@@ -203,8 +216,14 @@ public class ShareActivity extends Activity {
     }
 
     private void buildUi() {
+        // نفس وضع البرنامج (ليلي/نهاري) - الصفحة بتحفظه في Prefs كل ما يتغيّر
+        darkMode = Prefs.isDarkMode(this);
+        int screenBg = darkMode ? NAVY_DARK : BG_LIGHT;
+        int cardBg = darkMode ? CARD_DARK : CARD_LIGHT;
+        int textColor = darkMode ? Color.WHITE : TEXT_LIGHT;
+
         ScrollView scroll = new ScrollView(this);
-        scroll.setBackgroundColor(NAVY);
+        scroll.setBackgroundColor(screenBg);
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -215,29 +234,34 @@ public class ShareActivity extends Activity {
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(18), dp(18), dp(18), dp(18));
         GradientDrawable bg = new GradientDrawable();
-        bg.setColor(CARD);
+        bg.setColor(cardBg);
         bg.setCornerRadius(dp(16));
+        if (!darkMode) {
+            // في الوضع النهاري بنحط برواز خفيف عشان الكارت الأبيض يبان على الخلفية الفاتحة
+            bg.setStroke(dp(1), Color.parseColor("#D8E0EC"));
+        }
         card.setBackground(bg);
 
         TextView title = new TextView(this);
         title.setText("⚡ الملف ده يتحط فين؟");
-        title.setTextColor(Color.WHITE);
+        title.setTextColor(textColor);
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17);
         title.setGravity(Gravity.CENTER);
         title.setPadding(0, 0, 0, dp(12));
         card.addView(title);
 
         status = new TextView(this);
-        status.setTextColor(Color.WHITE);
+        status.setTextColor(textColor);
         status.setAlpha(0.85f);
         status.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         status.setGravity(Gravity.CENTER);
         status.setPadding(dp(6), dp(6), dp(6), dp(14));
         card.addView(status);
 
-        card.addView(makeButton("📎 ملف إحالة", GOLD, NAVY, "ref"));
-        card.addView(makeButton("📄 ملف تسجيل (يضاف على الداتا)", Color.parseColor("#2c3750"), Color.WHITE, "main"));
-        card.addView(makeButton("🛡️ ملف تشيك (يستبدل اللي قبله)", Color.parseColor("#0d9488"), Color.WHITE, "check"));
+        // الترتيب المطلوب: إحالة (ذهبي) ثم تشيك (أخضر) ثم تسجيل (أزرق) - بتدرج لوني زي صفحة الفرز
+        card.addView(makeButton("📎 ملف إحالة", GRAD_REF, NAVY_DARK, "ref"));
+        card.addView(makeButton("🛡️ ملف تشيك (يستبدل اللي قبله)", GRAD_CHECK, Color.WHITE, "check"));
+        card.addView(makeButton("📄 ملف تسجيل (يضاف على الداتا)", GRAD_MAIN, Color.WHITE, "main"));
 
         root.addView(card, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
@@ -245,14 +269,16 @@ public class ShareActivity extends Activity {
         setContentView(scroll);
     }
 
-    private Button makeButton(String text, int bgColor, int textColor, final String dest) {
+    private Button makeButton(String text, int[] gradientColors, int textColor, final String dest) {
         Button b = new Button(this);
         b.setText(text);
         b.setTextColor(textColor);
         b.setAllCaps(false);
         b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        GradientDrawable d = new GradientDrawable();
-        d.setColor(bgColor);
+
+        // تدرج لوني من الفاتح للغامق (نفس اتجاه أزرار البرنامج في الويب)
+        GradientDrawable d = new GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT, gradientColors);
         d.setCornerRadius(dp(12));
         b.setBackground(d);
         b.setOnClickListener(v -> send(dest));
@@ -267,4 +293,4 @@ public class ShareActivity extends Activity {
         b.setAlpha(0.45f);
         return b;
     }
-}
+    }
