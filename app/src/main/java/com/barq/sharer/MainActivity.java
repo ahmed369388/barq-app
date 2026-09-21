@@ -18,6 +18,7 @@ import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
+import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -56,11 +57,29 @@ public class MainActivity extends Activity {
         s.setLoadWithOverviewMode(true);
         s.setUseWideViewPort(true);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
+        // لازم عشان الروابط اللي بتفتح في نافذة جديدة (target="_blank" أو window.open) تشتغل -
+        // زي زرار "اتجاهات" وزرار "واتساب" في بطاقات الخريطة (من غير ده كانوا مابيعملوش أي حاجة)
+        s.setSupportMultipleWindows(true);
+        s.setJavaScriptCanOpenWindowsAutomatically(true);
 
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
 
-        web.setWebViewClient(new WebViewClient());
+        // مهم: أي رابط بيفتح تطبيق تاني على الموبايل (خرايط جوجل/واتساب/اتصال/بريد) لازم نفتحه
+        // بالتطبيق نفسه مش جوه صفحة الويب - من غير ده زراري "اتجاهات" و"واتساب" في بطاقات الخريطة
+        // كانوا بيطلعوا خطأ ERR_UNKNOWN_URL_SCHEME لأن الـWebView مش بيعرف الروابط دي أصلاً
+        web.setWebViewClient(new WebViewClient() {
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                return handleExternalUrl(request.getUrl() == null ? null : request.getUrl().toString());
+            }
+
+            @SuppressWarnings("deprecation")
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                return handleExternalUrl(url);
+            }
+        });
 
         // مهم: من غير ده أزرار رفع الملفات اللي جوه البرنامج مش هتشتغل
         web.setWebChromeClient(new WebChromeClient() {
@@ -77,6 +96,34 @@ public class MainActivity extends Activity {
                     return false;
                 }
             }
+
+            /**
+             * بيشتغل لما الصفحة تحاول تفتح رابط في نافذة جديدة (target="_blank" أو window.open) -
+             * زي زرار "اتجاهات" وزرار "واتساب" في بطاقات الخريطة. بنمسك الرابط ونفتحه في تطبيقه
+             * الصح على الموبايل (خرايط/واتساب)، ولو رابط عادي بنفتحه جوه البرنامج نفسه.
+             */
+            @Override
+            public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture, android.os.Message resultMsg) {
+                WebView temp = new WebView(MainActivity.this);
+                temp.setWebViewClient(new WebViewClient() {
+                    @Override
+                    public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest request) {
+                        openPopupUrl(request.getUrl() == null ? null : request.getUrl().toString());
+                        return true;
+                    }
+
+                    @SuppressWarnings("deprecation")
+                    @Override
+                    public boolean shouldOverrideUrlLoading(WebView v, String url) {
+                        openPopupUrl(url);
+                        return true;
+                    }
+                });
+                WebView.WebViewTransport transport = (WebView.WebViewTransport) resultMsg.obj;
+                transport.setWebView(temp);
+                resultMsg.sendToTarget();
+                return true;
+            }
         });
 
         // جسر جافا-سكريبت عشان نقدر نلصق من حافظة الهاتف - الـWebView العادي مش بيدي
@@ -91,6 +138,10 @@ public class MainActivity extends Activity {
         // جسر عشان زرار "فتح إكسل" يفتح ملف الإكسل المُصدَّر على طول في إكسل (أو أي برنامج
         // تاني عند المستخدم بيفتح xlsx) بدل ما يتحفظ في التنزيلات بس ويسيب المستخدم يدور عليه
         web.addJavascriptInterface(new OpenFileBridge(), "AndroidOpenFile");
+
+        // جسر بيخلي الصفحة تبلّغ التطبيق بالوضع الليلي/النهاري الحالي عشان شاشة استقبال الملفات
+        // المشاركة من واتساب تتلون بنفس وضع البرنامج
+        web.addJavascriptInterface(new ThemeBridge(), "AndroidTheme");
 
         root.addView(web, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
@@ -172,6 +223,66 @@ public class MainActivity extends Activity {
         else super.onBackPressed();
     }
 
+    /** رابط جاي من "نافذة جديدة": يفتح في تطبيقه الخارجي لو رابط تطبيق، وإلا يفتح جوه البرنامج */
+    private void openPopupUrl(String url) {
+        if (url == null || url.isEmpty()) return;
+        if (!handleExternalUrl(url) && web != null) {
+            web.loadUrl(url);
+        }
+    }
+
+    /**
+     * بيمسك الروابط اللي المفروض تفتح تطبيق تاني على الموبايل (مش جوه صفحة البرنامج):
+     *   • intent:// و whatsapp:// و geo: و tel: و mailto: - الـWebView مابيعرفهاش خالص
+     *     وكان بيطلع ERR_UNKNOWN_URL_SCHEME (ده كان سبب إن زرار "اتجاهات" مش شغال)
+     *   • روابط خرايط جوجل و wa.me - دول روابط https عادية بس المفروض تفتح في تطبيقاتها
+     *     (خرايط/واتساب) مش جوه البرنامج (ده كان سبب إن زرار "واتساب" مش شغال)
+     * بيرجع true يعني "أنا اتصرفت في الرابط ده، متفتحوش جوه الصفحة".
+     */
+    private boolean handleExternalUrl(String url) {
+        if (url == null || url.isEmpty()) return false;
+        String lower = url.toLowerCase();
+
+        boolean isAppScheme = lower.startsWith("intent:") || lower.startsWith("whatsapp:")
+                || lower.startsWith("geo:") || lower.startsWith("tel:") || lower.startsWith("mailto:")
+                || lower.startsWith("sms:") || lower.startsWith("market:");
+        boolean isExternalWeb = lower.contains("wa.me/") || lower.contains("api.whatsapp.com")
+                || lower.contains("google.com/maps") || lower.contains("maps.google.")
+                || lower.contains("maps.app.goo.gl") || lower.contains("goo.gl/maps");
+
+        if (!isAppScheme && !isExternalWeb) return false;
+
+        try {
+            Intent intent;
+            if (lower.startsWith("intent:")) {
+                // روابط intent:// بتتفك لنية أندرويد حقيقية، ولو التطبيق المطلوب مش متسطب
+                // بنستخدم الرابط البديل (browser_fallback_url) اللي جواها لو موجود
+                intent = Intent.parseUri(url, Intent.URI_INTENT_SCHEME);
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                try {
+                    startActivity(intent);
+                    return true;
+                } catch (android.content.ActivityNotFoundException notFound) {
+                    String fallback = intent.getStringExtra("browser_fallback_url");
+                    if (fallback != null && !fallback.isEmpty()) {
+                        startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(fallback))
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                        return true;
+                    }
+                    Toast.makeText(this, "مفيش تطبيق على الجهاز يقدر يفتح ده", Toast.LENGTH_SHORT).show();
+                    return true;
+                }
+            }
+            intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(intent);
+            return true;
+        } catch (Exception e) {
+            Toast.makeText(this, "تعذر فتح الرابط: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            return true;
+        }
+    }
+
     /**
      * جسر بيدي صفحة الويب جوه التطبيق وصول مباشر لحافظة الهاتف (نسخ/لصق).
      * ده لازم يكون كود ناتيف: WebView مفيهوش أي إذن أصلاً اسمه "حافظة" في نظام
@@ -227,6 +338,16 @@ public class MainActivity extends Activity {
         }
     }
 
+    /** جسر بيستقبل الوضع الليلي/النهاري من صفحة البرنامج ويحفظه عشان شاشة المشاركة تستخدمه */
+    private class ThemeBridge {
+        @JavascriptInterface
+        public void setDarkMode(final boolean dark) {
+            try {
+                Prefs.setDarkMode(MainActivity.this, dark);
+            } catch (Exception ignored) { }
+        }
+    }
+
     /**
      * جسر بيدي صفحة الويب القدرة تفتح ملف (زي الإكسل المُصدَّر) على طول في برنامج تاني عند
      * المستخدم (إكسل/WPS/أي فيوور xlsx) عن طريق Intent.ACTION_VIEW - بدل ما يتحفظ في مجلد
@@ -269,4 +390,4 @@ public class MainActivity extends Activity {
             });
         }
     }
-            }
+                                   }
