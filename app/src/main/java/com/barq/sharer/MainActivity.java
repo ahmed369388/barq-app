@@ -88,6 +88,10 @@ public class MainActivity extends Activity {
         // اختيار واتساب من شاشة المشاركة يوديك لواتساب فعلًا مع الصورة مرفقة جاهزة
         web.addJavascriptInterface(new ShareBridge(), "AndroidShare");
 
+        // جسر عشان زرار "فتح إكسل" يفتح ملف الإكسل المُصدَّر على طول في إكسل (أو أي برنامج
+        // تاني عند المستخدم بيفتح xlsx) بدل ما يتحفظ في التنزيلات بس ويسيب المستخدم يدور عليه
+        web.addJavascriptInterface(new OpenFileBridge(), "AndroidOpenFile");
+
         root.addView(web, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
 
@@ -222,4 +226,47 @@ public class MainActivity extends Activity {
             });
         }
     }
-}
+
+    /**
+     * جسر بيدي صفحة الويب القدرة تفتح ملف (زي الإكسل المُصدَّر) على طول في برنامج تاني عند
+     * المستخدم (إكسل/WPS/أي فيوور xlsx) عن طريق Intent.ACTION_VIEW - بدل ما يتحفظ في مجلد
+     * التنزيلات بس ويسيب المستخدم يفتحه يدوي بنفسه.
+     */
+    private class OpenFileBridge {
+        @JavascriptInterface
+        public void openFile(final String base64Data, final String filename, final String mime) {
+            runOnUiThread(() -> {
+                try {
+                    byte[] bytes = Base64.decode(base64Data, Base64.DEFAULT);
+                    File dir = new File(getCacheDir(), "open");
+                    dir.mkdirs();
+                    // بنشيل أي ملفات قديمة في المجلد ده عشان مايتراكمش
+                    File[] old = dir.listFiles();
+                    if (old != null) for (File f : old) f.delete();
+                    File file = new File(dir, filename);
+                    try (FileOutputStream fos = new FileOutputStream(file)) {
+                        fos.write(bytes);
+                    }
+                    Uri uri = FileProvider.getUriForFile(MainActivity.this, getPackageName() + ".fileprovider", file);
+                    Intent view = new Intent(Intent.ACTION_VIEW);
+                    view.setDataAndType(uri, mime == null || mime.isEmpty()
+                            ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" : mime);
+                    view.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    view.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    try {
+                        startActivity(view);
+                    } catch (android.content.ActivityNotFoundException notFound) {
+                        // مفيش برنامج على الجهاز عارف يفتح إكسل - نديله شاشة اختيار مشاركة/حفظ بدلها
+                        Intent share = new Intent(Intent.ACTION_SEND);
+                        share.setType(view.getType());
+                        share.putExtra(Intent.EXTRA_STREAM, uri);
+                        share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                        startActivity(Intent.createChooser(share, "فتح باستخدام"));
+                    }
+                } catch (Exception e) {
+                    Toast.makeText(MainActivity.this, "تعذر فتح الملف: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                }
+            });
+        }
+    }
+            }
