@@ -2,6 +2,9 @@ package com.barq.sharer;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
 import android.net.Uri;
@@ -11,6 +14,7 @@ import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.webkit.CookieManager;
+import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
@@ -68,6 +72,10 @@ public class MainActivity extends Activity {
                 }
             }
         });
+
+        // جسر جافا-سكريبت عشان نقدر نلصق من حافظة الهاتف - الـWebView العادي مش بيدي
+        // إذن وصول للحافظة عن طريق navigator.clipboard خالص، فلازم جسر ناتيف زي ده
+        web.addJavascriptInterface(new ClipboardBridge(), "AndroidClipboard");
 
         root.addView(web, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
@@ -147,5 +155,27 @@ public class MainActivity extends Activity {
     public void onBackPressed() {
         if (web != null && web.canGoBack()) web.goBack();
         else super.onBackPressed();
+    }
+
+    /**
+     * جسر بيدي صفحة الويب جوه التطبيق وصول مباشر لحافظة الهاتف (نسخ/لصق).
+     * ده لازم يكون كود ناتيف: WebView مفيهوش أي إذن أصلاً اسمه "حافظة" في نظام
+     * الأذونات بتاعه (onPermissionRequest)، فـ navigator.clipboard.readText() في
+     * جافا-سكريبت مستحيل يشتغل جوه تطبيق APK مهما حاولنا - لازم الجسر ده بالظبط.
+     */
+    private class ClipboardBridge {
+        @JavascriptInterface
+        public String readClipboard() {
+            try {
+                ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                if (cm == null || !cm.hasPrimaryClip()) return "";
+                ClipData clip = cm.getPrimaryClip();
+                if (clip == null || clip.getItemCount() == 0) return "";
+                CharSequence text = clip.getItemAt(0).coerceToText(MainActivity.this);
+                return text == null ? "" : text.toString();
+            } catch (Exception e) {
+                return "";
+            }
+        }
     }
 }
